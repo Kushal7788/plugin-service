@@ -1,0 +1,11 @@
+services:
+  mobile-tlsn-verifier:
+    build:
+      context: ..
+      dockerfile: mobile_tlsn_verifier_service/Dockerfile
+    ports:
+      - "7047:7047"
+    environment:
+      PORT: "7047"
+      PUBLIC_HOST: "localhost:7047"
+      RUST_LOG: "mobile_tlsn_verifier_service=info,tlsn=warn"
