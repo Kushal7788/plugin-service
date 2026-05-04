@@ -88,7 +88,9 @@ pub(crate) fn validate_reveal_config(
         if !allowed_paths.contains(path) {
             return Err(format!("recv BODY reveal path `{path}` is not allowlisted"));
         }
-        seen_paths.insert(path.clone());
+        if !seen_paths.insert(path.clone()) {
+            return Err(format!("recv BODY reveal path `{path}` is duplicated"));
+        }
     }
 
     for required_path in &policy.allowed_response_body_json_paths {
@@ -205,6 +207,133 @@ mod tests {
             }],
         };
         assert!(validate_reveal_config(&policy, &reveal_config).is_ok());
+    }
+
+    #[test]
+    fn reveal_config_validation_accepts_multiple_bracket_paths() {
+        let policy = SessionRevealPolicy {
+            allowed_request_headers: vec!["accept".to_string()],
+            allowed_response_body_json_paths: vec![
+                "transactions".to_string(),
+                "transactions[0]".to_string(),
+                "transactions[0].date".to_string(),
+            ],
+        };
+        let reveal_config = RevealConfig {
+            sent: vec![RangeWithHandler {
+                start: 0,
+                end: 3,
+                handler: Handler {
+                    handler_type: HandlerType::Sent,
+                    part: HandlerPart::Method,
+                    params: None,
+                },
+            }],
+            recv: vec![
+                RangeWithHandler {
+                    start: 10,
+                    end: 100,
+                    handler: Handler {
+                        handler_type: HandlerType::Recv,
+                        part: HandlerPart::Body,
+                        params: Some(HandlerParams {
+                            content_type: Some("json".to_string()),
+                            path: Some("transactions".to_string()),
+                        }),
+                    },
+                },
+                RangeWithHandler {
+                    start: 101,
+                    end: 150,
+                    handler: Handler {
+                        handler_type: HandlerType::Recv,
+                        part: HandlerPart::Body,
+                        params: Some(HandlerParams {
+                            content_type: Some("json".to_string()),
+                            path: Some("transactions[0]".to_string()),
+                        }),
+                    },
+                },
+                RangeWithHandler {
+                    start: 151,
+                    end: 180,
+                    handler: Handler {
+                        handler_type: HandlerType::Recv,
+                        part: HandlerPart::Body,
+                        params: Some(HandlerParams {
+                            content_type: Some("json".to_string()),
+                            path: Some("transactions[0].date".to_string()),
+                        }),
+                    },
+                },
+            ],
+        };
+
+        assert!(validate_reveal_config(&policy, &reveal_config).is_ok());
+    }
+
+    #[test]
+    fn reveal_config_validation_rejects_missing_extra_and_duplicate_paths() {
+        let policy = SessionRevealPolicy {
+            allowed_request_headers: vec!["accept".to_string()],
+            allowed_response_body_json_paths: vec![
+                "transactions[0].date".to_string(),
+                "transactions[0].amount".to_string(),
+            ],
+        };
+        let sent = vec![RangeWithHandler {
+            start: 0,
+            end: 3,
+            handler: Handler {
+                handler_type: HandlerType::Sent,
+                part: HandlerPart::Method,
+                params: None,
+            },
+        }];
+        let recv_for_path = |path: &str, start: usize| RangeWithHandler {
+            start,
+            end: start + 10,
+            handler: Handler {
+                handler_type: HandlerType::Recv,
+                part: HandlerPart::Body,
+                params: Some(HandlerParams {
+                    content_type: Some("json".to_string()),
+                    path: Some(path.to_string()),
+                }),
+            },
+        };
+
+        let missing = RevealConfig {
+            sent: sent.clone(),
+            recv: vec![recv_for_path("transactions[0].date", 10)],
+        };
+        assert!(validate_reveal_config(&policy, &missing)
+            .expect_err("missing required path should be rejected")
+            .contains("missing required allowlisted path"));
+
+        let extra = RevealConfig {
+            sent: sent.clone(),
+            recv: vec![
+                recv_for_path("transactions[0].date", 10),
+                recv_for_path("transactions[0].amount", 30),
+                recv_for_path("transactions[0].currency", 50),
+            ],
+        };
+        assert!(validate_reveal_config(&policy, &extra)
+            .expect_err("extra path should be rejected")
+            .contains("not allowlisted"));
+
+        let duplicate = RevealConfig {
+            sent,
+            recv: vec![
+                recv_for_path("transactions[0].date", 10),
+                recv_for_path("transactions[0].date", 30),
+                recv_for_path("transactions[0].amount", 50),
+            ],
+        };
+        assert!(validate_reveal_config(&policy, &duplicate)
+            .expect_err("duplicate path should be rejected")
+            .contains("duplicated"));
     }
 
     #[test]
