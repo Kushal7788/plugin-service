@@ -372,7 +372,7 @@ mod tests {
                 }
             },
             "proof": {
-                "format": "tlsn.presentation.bincode",
+                "format": "proof.presentation.bincode",
                 "encoding": "base64",
                 "presentation": "AQID"
             },

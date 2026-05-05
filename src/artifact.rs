@@ -25,11 +25,11 @@ pub(crate) fn decode_presentation_from_envelope(
     envelope: &ProofEnvelope,
 ) -> Result<Presentation, String> {
     match envelope.format.as_str() {
-        "tlsn.presentation" => {
+        "proof.presentation" => {
             serde_json::from_value::<Presentation>(envelope.presentation.clone())
                 .map_err(|error| format!("presentation json parse failed: {error}"))
         }
-        "tlsn.presentation.bincode" => {
+        "proof.presentation.bincode" => {
             if envelope.encoding.as_deref().unwrap_or("base64") != "base64" {
                 return Err("unsupported presentation encoding".to_string());
             }
@@ -55,20 +55,20 @@ mod tests {
     fn proof_envelope_parser_accepts_nested_shape() {
         let payload = serde_json::json!({
             "proof": {
-                "format": "tlsn.presentation.bincode",
+                "format": "proof.presentation.bincode",
                 "encoding": "base64",
                 "presentation": "AQID"
             }
         });
         let envelope = decode_proof_envelope(&payload).expect("envelope should parse");
-        assert_eq!(envelope.format, "tlsn.presentation.bincode");
+        assert_eq!(envelope.format, "proof.presentation.bincode");
         assert_eq!(envelope.encoding.as_deref(), Some("base64"));
     }
 
     #[test]
     fn bincode_envelope_requires_valid_base64() {
         let envelope = ProofEnvelope {
-            format: "tlsn.presentation.bincode".to_string(),
+            format: "proof.presentation.bincode".to_string(),
             encoding: Some("base64".to_string()),
             presentation: serde_json::json!("not-base64!"),
         };
@@ -78,7 +78,7 @@ mod tests {
     #[test]
     fn json_envelope_requires_valid_presentation_object() {
         let envelope = ProofEnvelope {
-            format: "tlsn.presentation".to_string(),
+            format: "proof.presentation".to_string(),
             encoding: None,
             presentation: serde_json::json!({"unexpected": "shape"}),
         };

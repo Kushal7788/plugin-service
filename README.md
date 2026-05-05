@@ -58,6 +58,10 @@ current working directory `.env` if present.
 - `RUST_LOG`: tracing filter, default `mobile_tlsn_verifier_service=info,tlsn=warn`.
 - `NOTARY_SIGNING_KEY_B64`: base64-encoded 32-byte secp256k1 private key. A deterministic development fallback is used when unset; production must set this.
 - `TRUSTED_NOTARY_KEYS_B64`: comma-separated base64 public keys accepted by artifact verification.
+  - Should include the public key corresponding to `NOTARY_SIGNING_KEY_B64` for self-issued attestations.
+
+Artifact verification expects proof envelopes in `proof.presentation.bincode`
+(standard) or `proof.presentation`.
 
 ## Plugin Integration
 
