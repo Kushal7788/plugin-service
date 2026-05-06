@@ -71,3 +71,15 @@ ranges, request an attestation, poll the result, and call artifact verification.
 
 See `docs/api_reference.md`, `docs/local_run.md`, `docs/testing_guide.md`, and
 `docs/production_deployment.md` for detailed workflows.
+
+## License
+
+This repository is licensed under the MIT License. See `LICENSE`.
+
+### TLSNotary dependency licensing
+
+This service depends on `tlsn` from `https://github.com/tlsnotary/tlsn` tag
+`v0.1.0-alpha.14`, which is dual-licensed as `MIT OR Apache-2.0`.
+
+For this repository, TLSNotary is consumed under the MIT option. See
+`THIRD_PARTY_LICENSES.md` for third-party attribution and license text.
