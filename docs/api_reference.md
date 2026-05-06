@@ -1,6 +1,23 @@
 # Verifier Service API Reference
 
-Base URL defaults to `http://localhost:7047`.
+Base URL defaults to `http://localhost:7047` for local service runs.
+
+The current Cloudflare Worker custom domain is
+`https://mpc-verifier.burnt.com`.
+
+## OpenAPI Schema
+
+`GET /openapi.json`
+
+When deployed behind the Cloudflare Worker, returns the OpenAPI 3.0 schema for
+the public API without starting or routing to a verifier container.
+
+## API Docs
+
+`GET /docs`
+
+When deployed behind the Cloudflare Worker, returns a Swagger UI page backed by
+`/openapi.json`.
 
 ## Health
 
@@ -16,10 +33,11 @@ Returns service name and API version.
 
 ## Register Session
 
-`POST /v1/sessions/register?host=localhost:7047`
+`POST /v1/sessions/register`
 
 ```json
 {
+  "sessionId": "optional-worker-minted-uuid",
   "clientSessionId": "sample-session",
   "maxRecvData": 65536,
   "maxSentData": 65536,
@@ -30,7 +48,13 @@ Returns service name and API version.
 }
 ```
 
-Returns `sessionId` and `verifierWsUrl`.
+`sessionId` is optional. When provided, it must be a UUID and must not already
+exist. This lets a Worker mint the session ID before routing registration to a
+named container instance. When omitted, the service generates a UUID.
+
+Returns `sessionId` and `verifierWsUrl`. `verifierWsUrl` is a relative
+WebSocket endpoint path; resolve it against the same origin used for
+registration, with `ws` for `http` and `wss` for `https`.
 
 ## Verifier WebSocket
 

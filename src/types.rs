@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RegisterSessionRequest {
+    #[serde(default)]
+    pub(crate) session_id: Option<String>,
     pub(crate) client_session_id: String,
     pub(crate) max_recv_data: usize,
     pub(crate) max_sent_data: usize,
@@ -89,11 +91,6 @@ pub(crate) struct SessionResultResponse {
     pub(crate) reveal_config_received: bool,
     pub(crate) result: Option<crate::state::SessionResult>,
     pub(crate) error_message: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct HostQuery {
-    pub(crate) host: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

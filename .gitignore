@@ -6,6 +6,12 @@
 # Rust build output
 /target/
 
+# Cloudflare Worker dependencies and local state
+/node_modules/
+/.wrangler/
+/worker/node_modules/
+/worker/.wrangler/
+
 # Editor and OS files
 .DS_Store
 .idea/

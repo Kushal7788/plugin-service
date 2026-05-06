@@ -1,7 +1,5 @@
-use std::sync::Arc;
-
 use axum::extract::ws::{WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
@@ -10,21 +8,21 @@ use chrono::Utc;
 use tlsn::attestation::{
     request::Request as AttestationRequest, Attestation, AttestationConfig, CryptoProvider,
 };
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::oneshot;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::artifact::{decode_presentation_from_envelope, decode_proof_envelope};
-use crate::config::{build_notary_provider, public_host};
+use crate::config::build_notary_provider;
 use crate::policy::{
     parse_reveal_policy, validate_reveal_config, validate_sanitized_payload_shape,
 };
 use crate::session::run_verifier_session;
-use crate::state::{AppState, SessionRecord, SessionStatus};
+use crate::state::{AppState, SessionRecord, SessionStatus, SessionStoreError};
 use crate::types::{
     ArtifactVerifyRequest, ArtifactVerifyResponse, AttestationIssueRequest,
-    AttestationIssueResponse, ErrorResponse, HostQuery, RegisterSessionRequest,
-    RegisterSessionResponse, RevealConfig, SessionResultResponse,
+    AttestationIssueResponse, ErrorResponse, RegisterSessionRequest, RegisterSessionResponse,
+    RevealConfig, SessionResultResponse,
 };
 
 pub(crate) async fn health_handler() -> &'static str {
@@ -40,7 +38,6 @@ pub(crate) async fn info_handler() -> Json<serde_json::Value> {
 
 pub(crate) async fn register_session_handler(
     State(state): State<AppState>,
-    Query(query): Query<HostQuery>,
     Json(req): Json<RegisterSessionRequest>,
 ) -> Result<Json<RegisterSessionResponse>, (StatusCode, Json<ErrorResponse>)> {
     if req.client_session_id.trim().is_empty() {
@@ -50,12 +47,35 @@ pub(crate) async fn register_session_handler(
             "clientSessionId is required",
         ));
     }
-    let session_id = Uuid::new_v4().to_string();
+    let session_id = match req.session_id.as_deref().map(str::trim) {
+        Some(value) if !value.is_empty() => Uuid::parse_str(value)
+            .map(|uuid| uuid.to_string())
+            .map_err(|_| {
+                api_error(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_request",
+                    "sessionId must be a UUID when provided",
+                )
+            })?,
+        _ => Uuid::new_v4().to_string(),
+    };
+    if state
+        .store
+        .get(&session_id)
+        .map_err(store_api_error)?
+        .is_some()
+    {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "session_exists",
+            "sessionId already exists",
+        ));
+    }
     let (tx, rx) = oneshot::channel::<WebSocket>();
     let reveal_policy = parse_reveal_policy(&req.session_data)
         .map_err(|message| api_error(StatusCode::BAD_REQUEST, "invalid_reveal_policy", message))?;
 
-    let record = Arc::new(Mutex::new(SessionRecord {
+    let record = SessionRecord {
         client_session_id: req.client_session_id.clone(),
         max_recv_data: req.max_recv_data,
         max_sent_data: req.max_sent_data,
@@ -65,29 +85,21 @@ pub(crate) async fn register_session_handler(
         reveal_config: None,
         notary_material: None,
         status: SessionStatus::Pending,
-        prover_socket_tx: Some(tx),
-    }));
+    };
     state
-        .sessions
+        .store
+        .insert(&session_id, &record)
+        .map_err(store_api_error)?;
+    state
+        .live_socket_txs
         .lock()
         .await
-        .insert(session_id.clone(), record.clone());
-    tokio::spawn(run_verifier_session(
-        state.clone(),
-        session_id.clone(),
-        record,
-        rx,
-    ));
+        .insert(session_id.clone(), tx);
+    tokio::spawn(run_verifier_session(state.clone(), session_id.clone(), rx));
 
-    let host = query.host.unwrap_or_else(public_host);
-    let scheme = if host.starts_with("localhost") || host.starts_with("127.0.0.1") {
-        "ws"
-    } else {
-        "wss"
-    };
     Ok(Json(RegisterSessionResponse {
         session_id: session_id.clone(),
-        verifier_ws_url: format!("{scheme}://{host}/v1/sessions/{session_id}/verifier"),
+        verifier_ws_url: format!("/v1/sessions/{session_id}/verifier"),
     }))
 }
 
@@ -96,20 +108,28 @@ pub(crate) async fn verifier_ws_handler(
     Path(session_id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let record = {
-        let guard = state.sessions.lock().await;
-        guard.get(&session_id).cloned()
-    };
-    let Some(record) = record else {
+    if state
+        .store
+        .get(&session_id)
+        .map_err(store_api_error)?
+        .is_none()
+    {
         return Err(api_error(
             StatusCode::NOT_FOUND,
             "session_not_found",
             "unknown session id",
         ));
     };
+    if !state.live_socket_txs.lock().await.contains_key(&session_id) {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "live_session_not_available",
+            "session is not active on this process",
+        ));
+    }
     Ok(ws.on_upgrade(move |socket| async move {
-        let mut session = record.lock().await;
-        match session.prover_socket_tx.take() {
+        let tx = state.live_socket_txs.lock().await.remove(&session_id);
+        match tx {
             Some(tx) => {
                 if tx.send(socket).is_err() {
                     warn!("session={} verifier ws dropped before handoff", session_id);
@@ -127,22 +147,21 @@ pub(crate) async fn reveal_config_handler(
     State(state): State<AppState>,
     Json(reveal_config): Json<RevealConfig>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let record = {
-        let guard = state.sessions.lock().await;
-        guard.get(&session_id).cloned()
-    };
-    let Some(record) = record else {
+    let Some(mut record) = state.store.get(&session_id).map_err(store_api_error)? else {
         return Err(api_error(
             StatusCode::NOT_FOUND,
             "session_not_found",
             "unknown session id",
         ));
     };
-    let mut locked = record.lock().await;
-    validate_reveal_config(&locked.reveal_policy, &reveal_config).map_err(|message| {
+    validate_reveal_config(&record.reveal_policy, &reveal_config).map_err(|message| {
         api_error(StatusCode::BAD_REQUEST, "reveal_policy_violation", message)
     })?;
-    locked.reveal_config = Some(reveal_config);
+    record.reveal_config = Some(reveal_config);
+    state
+        .store
+        .save(&session_id, &record)
+        .map_err(store_api_error)?;
     Ok(Json(serde_json::json!({
         "ok": true,
         "sessionId": session_id,
@@ -153,19 +172,14 @@ pub(crate) async fn session_result_handler(
     Path(session_id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<SessionResultResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let record = {
-        let guard = state.sessions.lock().await;
-        guard.get(&session_id).cloned()
-    };
-    let Some(record) = record else {
+    let Some(record) = state.store.get(&session_id).map_err(store_api_error)? else {
         return Err(api_error(
             StatusCode::NOT_FOUND,
             "session_not_found",
             "unknown session id",
         ));
     };
-    let locked = record.lock().await;
-    let (status, result, error_message) = match &locked.status {
+    let (status, result, error_message) = match &record.status {
         SessionStatus::Pending => ("pending".to_string(), None, None),
         SessionStatus::InProgress => ("in_progress".to_string(), None, None),
         SessionStatus::Completed(value) => ("completed".to_string(), Some(value.clone()), None),
@@ -174,9 +188,9 @@ pub(crate) async fn session_result_handler(
     Ok(Json(SessionResultResponse {
         status,
         session_id,
-        client_session_id: locked.client_session_id.clone(),
-        created_at_utc: locked.created_at_utc.to_rfc3339(),
-        reveal_config_received: locked.reveal_config.is_some(),
+        client_session_id: record.client_session_id.clone(),
+        created_at_utc: record.created_at_utc.to_rfc3339(),
+        reveal_config_received: record.reveal_config.is_some(),
         result,
         error_message,
     }))
@@ -187,27 +201,20 @@ pub(crate) async fn issue_attestation_handler(
     State(state): State<AppState>,
     Json(req): Json<AttestationIssueRequest>,
 ) -> Result<Json<AttestationIssueResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let record = {
-        let guard = state.sessions.lock().await;
-        guard.get(&session_id).cloned()
-    };
-    let Some(record) = record else {
+    let Some(record) = state.store.get(&session_id).map_err(store_api_error)? else {
         return Err(api_error(
             StatusCode::NOT_FOUND,
             "session_not_found",
             "unknown session id",
         ));
     };
-    let material = {
-        let locked = record.lock().await;
-        locked.notary_material.clone().ok_or_else(|| {
-            api_error(
-                StatusCode::CONFLICT,
-                "session_not_ready",
-                "session not ready for attestation",
-            )
-        })?
-    };
+    let material = record.notary_material.clone().ok_or_else(|| {
+        api_error(
+            StatusCode::CONFLICT,
+            "session_not_ready",
+            "session not ready for attestation",
+        )
+    })?;
     let request_bytes = BASE64_STANDARD
         .decode(req.attestation_request_b64)
         .map_err(|error| {
@@ -348,5 +355,13 @@ fn api_error(
             code: code.into(),
             message: message.into(),
         }),
+    )
+}
+
+fn store_api_error(error: SessionStoreError) -> (StatusCode, Json<ErrorResponse>) {
+    api_error(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "session_store_error",
+        error.to_string(),
     )
 }

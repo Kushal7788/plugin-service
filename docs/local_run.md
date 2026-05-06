@@ -32,7 +32,7 @@ Use the service URL in app/plugin transport config:
 ## Manual Session Flow Test
 
 ```bash
-curl -X POST "http://localhost:7047/v1/sessions/register?host=localhost:7047" \
+curl -X POST "http://localhost:7047/v1/sessions/register" \
   -H "Content-Type: application/json" \
   -d '{
     "clientSessionId":"debug-session-001",

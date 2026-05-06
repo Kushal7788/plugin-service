@@ -5,11 +5,14 @@ use axum::Router;
 use tower_http::cors::CorsLayer;
 use tracing::info;
 
-use crate::config::{load_env_files, load_notary_signing_key, load_trusted_notary_keys, port};
+use crate::config::{
+    derive_trusted_notary_keys, load_env_files, load_notary_signing_key, port, session_store_config,
+};
 use crate::handlers::{
     artifact_verify_handler, health_handler, info_handler, issue_attestation_handler,
     register_session_handler, reveal_config_handler, session_result_handler, verifier_ws_handler,
 };
+use crate::session::cleanup_old_sessions;
 use crate::state::AppState;
 
 pub(crate) async fn run() {
@@ -22,7 +25,16 @@ pub(crate) async fn run() {
         .with_target(true)
         .init();
 
-    let state = AppState::new(load_trusted_notary_keys(), load_notary_signing_key());
+    let notary_signing_key = load_notary_signing_key();
+    let trusted_notary_keys = derive_trusted_notary_keys(&notary_signing_key)
+        .expect("failed to derive notary public key");
+    let state = AppState::new(
+        session_store_config(),
+        trusted_notary_keys,
+        notary_signing_key,
+    )
+    .expect("failed to initialize session store");
+    cleanup_old_sessions(state.clone()).await;
     let app = router(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port()));

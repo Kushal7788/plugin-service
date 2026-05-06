@@ -1,0 +1,8 @@
+.git
+.env
+.env.*
+.wrangler
+node_modules
+target
+npm-debug.log*
+*.log

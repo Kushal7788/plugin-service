@@ -1,0 +1,48 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "mpc-verifier",
+  "account_id": "7b5971b399673fe613f69d1f6d9a0940",
+  "main": "index.ts",
+  "compatibility_date": "2026-05-06",
+  "workers_dev": true,
+  "preview_urls": true,
+  "observability": {
+    "enabled": true
+  },
+  "routes": [
+    {
+      "pattern": "mpc-verifier.burnt.com",
+      "custom_domain": true
+    }
+  ],
+  "secrets": {
+    "required": [
+      "NOTARY_SIGNING_KEY_B64"
+    ]
+  },
+  "containers": [
+    {
+      "class_name": "VerifierContainer",
+      "image": "../Dockerfile",
+      "image_build_context": "..",
+      "max_instances": 20,
+      "rollout_active_grace_period": 900
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "VERIFIER_CONTAINER",
+        "class_name": "VerifierContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "VerifierContainer"
+      ]
+    }
+  ]
+}
