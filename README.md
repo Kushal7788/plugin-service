@@ -75,7 +75,7 @@ working directory `.env` if present.
   WebSocket handoff, default `SESSION_TTL_SECONDS`.
 - `WEBSOCKET_HANDOFF_TIMEOUT_SECONDS`: hard cap for waiting on the prover
   WebSocket after registration, default `60`.
-- `NOTARY_SIGNING_KEY_B64`: base64-encoded 32-byte secp256k1 private key. A deterministic development fallback is used when unset; production must set this. The service derives the matching public verifying key at startup for self-issued artifact verification.
+- `NOTARY_SIGNING_KEY_B64`: required base64-encoded 32-byte secp256k1 private key. The service fails fast at startup when this value is missing or invalid, and derives the matching public verifying key for self-issued artifact verification.
 
 SQLite storage does not make an active verifier WebSocket portable across
 processes. The live WebSocket handoff and TLSN verifier task remain local to
