@@ -67,22 +67,23 @@ fn env_u64(name: &str, default: u64) -> u64 {
         .unwrap_or(default)
 }
 
-pub(crate) fn load_notary_signing_key() -> [u8; 32] {
-    let fallback = [1_u8; 32];
-    let raw = match std::env::var("NOTARY_SIGNING_KEY_B64") {
-        Ok(value) => value,
-        Err(_) => return fallback,
-    };
-    let decoded = match BASE64_STANDARD.decode(raw) {
-        Ok(value) => value,
-        Err(_) => return fallback,
-    };
+pub(crate) fn load_notary_signing_key() -> Result<[u8; 32], String> {
+    let raw = std::env::var("NOTARY_SIGNING_KEY_B64").map_err(|_| {
+        "NOTARY_SIGNING_KEY_B64 is required; refusing to start without a configured notary signing key"
+            .to_string()
+    })?;
+    let decoded = BASE64_STANDARD.decode(raw).map_err(|error| {
+        format!("NOTARY_SIGNING_KEY_B64 must be valid base64-encoded bytes: {error}")
+    })?;
     if decoded.len() != 32 {
-        return fallback;
+        return Err(format!(
+            "NOTARY_SIGNING_KEY_B64 must decode to exactly 32 bytes, got {}",
+            decoded.len()
+        ));
     }
     let mut out = [0_u8; 32];
     out.copy_from_slice(&decoded);
-    out
+    Ok(out)
 }
 
 pub(crate) fn derive_trusted_notary_keys(signing_key: &[u8; 32]) -> Result<Vec<String>, String> {

@@ -1,4 +1,5 @@
 use eyre::eyre;
+use std::sync::OnceLock;
 use tlsn::{
     config::{tls_commit::TlsCommitProtocolConfig, verifier::VerifierConfig},
     connection::{ConnectionInfo, ServerEphemKey, TranscriptLength},
@@ -11,6 +12,12 @@ use tlsn::{
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::info;
+
+static ROOT_CERT_STORE: OnceLock<RootCertStore> = OnceLock::new();
+
+fn root_cert_store() -> RootCertStore {
+    ROOT_CERT_STORE.get_or_init(RootCertStore::mozilla).clone()
+}
 
 #[derive(Debug, Clone)]
 pub struct VerifierCompletion {
@@ -32,7 +39,7 @@ pub async fn run_verifier<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     let driver_task = tokio::spawn(driver);
 
     let verifier_config = VerifierConfig::builder()
-        .root_store(RootCertStore::mozilla())
+        .root_store(root_cert_store())
         .build()
         .map_err(|e| eyre!("failed to build verifier config: {e}"))?;
 

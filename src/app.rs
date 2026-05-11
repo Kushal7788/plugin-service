@@ -25,7 +25,8 @@ pub(crate) async fn run() {
         .with_target(true)
         .init();
 
-    let notary_signing_key = load_notary_signing_key();
+    let notary_signing_key =
+        load_notary_signing_key().expect("invalid NOTARY_SIGNING_KEY_B64 configuration");
     let trusted_notary_keys = derive_trusted_notary_keys(&notary_signing_key)
         .expect("failed to derive notary public key");
     let state = AppState::new(
