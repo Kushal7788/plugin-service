@@ -4,3 +4,5 @@ services:
       context: .
     ports:
       - "7047:7047"
+    environment:
+      NOTARY_SIGNING_KEY_B64: ${NOTARY_SIGNING_KEY_B64:?set NOTARY_SIGNING_KEY_B64 in the shell or .env}
