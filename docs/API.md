@@ -55,7 +55,7 @@ Creates a session record with status `pending`, registers a one-time WebSocket h
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `sessionId` | string (UUID) | no | If present and non-blank, must parse as a UUID and must not already exist. Otherwise a v4 UUID is generated. The Worker always fills this in. |
+| `sessionId` | string (UUID) | no | If present and non-blank, must parse as a UUID and must not already exist. Otherwise the service creates a v4 UUID. The Worker always fills this in. |
 | `clientSessionId` | string | yes | Caller-side identifier; must not be blank. Echoed back by `/result`. |
 | `maxRecvData` | integer | yes | Upper bound on the prover's `max_recv_data`; the verifier fails the session if the prover asks for more. |
 | `maxSentData` | integer | yes | Upper bound on the prover's `max_sent_data`. |

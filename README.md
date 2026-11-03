@@ -107,7 +107,7 @@ This is a single Cargo package (not a workspace) with one binary target.
 │   ├── openapi-schema.ts      # OpenAPI 3.0 schema served by the Worker
 │   ├── wrangler.jsonc         # Worker, Container and Durable Object configuration
 │   ├── package.json           # check / types / dev / deploy scripts
-│   └── worker-configuration.d.ts  # generated Wrangler types
+│   └── worker-configuration.d.ts  # Env types emitted by `wrangler types`
 ├── docs/
 │   ├── API.md                 # endpoint reference
 │   ├── ARCHITECTURE.md        # design deep-dive with diagrams
